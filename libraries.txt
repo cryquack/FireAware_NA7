@@ -4,3 +4,4 @@
 ESP32Servo
 DHT sensor library
 DHT sensor library for ESPx
+ThingSpeak
