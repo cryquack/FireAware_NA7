@@ -4,7 +4,7 @@
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
  
-// Pins
+// Pin connections
 #define DHT_PIN 15
 #define MQ2_PIN 34
 #define SERVO_PIN 18
@@ -15,21 +15,21 @@
 #define RED_LED 14
 #define PURPLE_LED 13
  
-// Wokwi Wi-Fi and ThingSpeak settings.
+// Wi-Fi and ThingSpeak settings
 const char* WIFI_NAME = "Wokwi-GUEST";
 const char* WIFI_PASSWORD = "";
-const char* WRITE_API_KEY = "CQUVZ42RRJ6BKJ01";
+const char* WRITE_API_KEY = "OUR_SECRET_API_KEY";
  
 DHTesp dht;
-Servo fanServo; // Represents a vent position, not a real fan speed.
+Servo fanServo;
  
 // Thresholds
 const float FAN_ON_TEMP = 35.0;
 const float FAN_OFF_TEMP = 32.0;
 const float EMERGENCY_TEMP = 45.0;
-const int SMOKE_THRESHOLD = 3000; // Raw ADC value, NOT ppm.
+const int SMOKE_THRESHOLD = 3000;
  
-// State numbers uploaded to ThingSpeak are 0, 1, 2, 3 and 4.
+// System states
 enum State {
   SAFE,
   HEAT_CONTROL,
@@ -38,7 +38,6 @@ enum State {
   FAILSAFE
 };
  
-// Start in FAILSAFE until the first valid temperature reading.
 State currentState = FAILSAFE;
 State previousState = FAILSAFE;
 float temperature = NAN;
@@ -71,19 +70,17 @@ void showStateLED(State state) {
   }
 }
  
-// send an HTTPS GET and check the returned entry ID.
 void uploadToThingSpeak() {
   if (WiFi.status() != WL_CONNECTED) {
     Serial.println("Upload skipped: Wi-Fi is not connected.");
     return;
   }
-  if (String(WRITE_API_KEY) == "PASTE_WRITE_API_KEY_HERE") {
-    Serial.println("Upload skipped: add your ThingSpeak Write API Key.");
+  if (String(WRITE_API_KEY) == "OUR_SECRET_API_KEY") {
+    Serial.println("Upload skipped: ThingSpeak API key is not set.");
     return;
   }
  
   WiFiClientSecure client;
- 
   client.setInsecure();
   HTTPClient http;
   String url = "https://api.thingspeak.com/update?api_key=";
@@ -103,7 +100,6 @@ void uploadToThingSpeak() {
     Serial.println("Could not start cloud request.");
     return;
   }
-  // This request can briefly pause the loop, including buzzer timing.
   int responseCode = http.GET();
   String entryID = "";
   if (responseCode > 0) entryID = http.getString();
@@ -136,7 +132,7 @@ void setup() {
 }
  
 void loop() {
-  // Read the DHT every 2 seconds without delaying the whole loop.
+  // Read temperature and humidity every 2 seconds
   if (millis() - lastSensorRead >= 2000) {
     lastSensorRead = millis();
     TempAndHumidity data = dht.getTempAndHumidity();
@@ -151,7 +147,7 @@ void loop() {
   }
   smokeValue = analogRead(MQ2_PIN);
  
-  // Fan hysteresis: remember the demand between 32 and 35 C.
+  // Temperature control with hysteresis
   if (sensorOK) {
     if (temperature >= FAN_ON_TEMP) fanEnabled = true;
     if (temperature <= FAN_OFF_TEMP) fanEnabled = false;
@@ -159,7 +155,7 @@ void loop() {
     fanEnabled = false;
   }
  
-  // State determination: a DHT failure must not silence a smoke alarm.
+  // Choose the current system state
   if (smokeValue > SMOKE_THRESHOLD && sensorOK && temperature >= EMERGENCY_TEMP) {
     currentState = EMERGENCY;
   } else if (smokeValue > SMOKE_THRESHOLD) {
@@ -170,7 +166,7 @@ void loop() {
     currentState = fanEnabled ? HEAT_CONTROL : SAFE;
   }
  
-  // State change notification, as in the original sketch.
+  // Print state changes
   if (currentState != previousState) {
     Serial.println("---------------------");
     switch (currentState) {
@@ -180,7 +176,6 @@ void loop() {
       case EMERGENCY:    Serial.println("State: EMERGENCY"); break;
       case FAILSAFE:     Serial.println("State: FAILSAFE"); break;
     }
-    // Reset the alarm timing when entering a different state.
     noTone(BUZZER_PIN);
     buzzerState = false;
     lastBuzzerToggle = millis();
@@ -189,7 +184,7 @@ void loop() {
  
   showStateLED(currentState);
  
-  // Output actions: 0 degrees means the simulated vent is closed.
+  // Control the LEDs, vent and buzzer
   switch (currentState) {
     case SAFE:
       fanServo.write(0);
@@ -201,7 +196,7 @@ void loop() {
       noTone(BUZZER_PIN);
       break;
     case SMOKE_ALERT:
-      fanServo.write(0); // Interlock: close ventilation during smoke.
+      fanServo.write(0);
       if (millis() - lastBuzzerToggle >= 250) {
         lastBuzzerToggle = millis();
         buzzerState = !buzzerState;
@@ -219,12 +214,12 @@ void loop() {
       break;
   }
  
-  // Retry Wi-Fi without waiting in a while loop.
+  // Retry the Wi-Fi connection every 10 seconds
   if (WiFi.status() != WL_CONNECTED && millis() - lastWiFiRetry >= 10000) {
     lastWiFiRetry = millis();
     WiFi.reconnect();
   }
-  // Allow at least 20 seconds between cloud attempts.
+  // Upload data every 20 seconds
   if (millis() - lastCloudUpload >= 20000) {
     uploadToThingSpeak();
     lastCloudUpload = millis();
